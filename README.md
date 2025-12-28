@@ -50,3 +50,4 @@
 ```bash
 python app_qt.py
 ```
+讨论加QQ群：982849511
