@@ -14,6 +14,8 @@ from datetime import datetime
 from PyQt6 import QtCore, QtGui, QtWidgets
 from docx import Document
 from docx.shared import Inches
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 
 def is_windows():
@@ -698,6 +700,51 @@ def rebuild_tables_in_docx(docx_path: str, tables_data):
     doc.save(docx_path)
 
 
+def apply_table_grid_style(docx_path: str):
+    if not docx_path or not os.path.isfile(docx_path):
+        return
+    try:
+        doc = Document(docx_path)
+        style_names = {s.name for s in doc.styles}
+        preferred = None
+        for name in ("Table Grid", "表格网格", "网格型表格"):
+            if name in style_names:
+                preferred = name
+                break
+        for table in doc.tables:
+            try:
+                if preferred:
+                    table.style = preferred
+                else:
+                    set_table_borders(table)
+            except Exception:
+                pass
+        doc.save(docx_path)
+    except Exception:
+        return
+
+
+def set_table_borders(table, size: int = 8, color: str = "000000"):
+    tbl = table._tbl
+    tbl_pr = tbl.tblPr
+    if tbl_pr is None:
+        tbl_pr = OxmlElement("w:tblPr")
+        tbl.append(tbl_pr)
+    borders = tbl_pr.find(qn("w:tblBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tblBorders")
+        tbl_pr.append(borders)
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        element = borders.find(qn(f"w:{edge}"))
+        if element is None:
+            element = OxmlElement(f"w:{edge}")
+            borders.append(element)
+        element.set(qn("w:val"), "single")
+        element.set(qn("w:sz"), str(size))
+        element.set(qn("w:color"), color)
+        element.set(qn("w:space"), "0")
+
+
 def patch_numbering_fonts(docx_path: str, east_asia: str, latin: str):
     if not docx_path or not os.path.isfile(docx_path):
         return
@@ -1028,24 +1075,6 @@ def remove_literal_math_markers(docx_path: str):
         for paragraph in list(doc.paragraphs):
             if paragraph.text.strip() in markers:
                 paragraph._element.getparent().remove(paragraph._element)
-        doc.save(docx_path)
-    except Exception:
-        return
-
-
-def enforce_blockquote_style(docx_path: str):
-    if not docx_path or not os.path.isfile(docx_path):
-        return
-    try:
-        doc = Document(docx_path)
-        for paragraph in doc.paragraphs:
-            style_name = paragraph.style.name if paragraph.style is not None else ""
-            if style_name in {"Block Text", "Quote"}:
-                fmt = paragraph.paragraph_format
-                if fmt.left_indent is None or fmt.left_indent < Inches(0.3):
-                    fmt.left_indent = Inches(0.45)
-                if fmt.right_indent is None:
-                    fmt.right_indent = Inches(0.0)
         doc.save(docx_path)
     except Exception:
         return
@@ -2761,7 +2790,6 @@ class MainWindow(QtWidgets.QMainWindow):
         text = normalize_math_blocks(text)
         text = strip_standalone_brackets(text)
         text = filter_horizontal_rules(text, self.keep_rules)
-        text = strip_links(text)
         text = normalize_ai_headings(text)
         return text
 
@@ -2930,13 +2958,12 @@ class MainWindow(QtWidgets.QMainWindow):
         markdown_text = ensure_closed_code_blocks(markdown_text)
         markdown_text = merge_vertical_text(markdown_text)
         markdown_text = normalize_fenced_math(markdown_text)
-        markdown_text, table_data = extract_tables_with_placeholders(markdown_text)
-        self._log_file(f"表格识别: {len(table_data)}")
+        markdown_text = normalize_table_breaks(markdown_text)
+        markdown_text = normalize_markdown_tables(markdown_text)
         markdown_text = normalize_math_blocks(markdown_text)
         markdown_text = strip_standalone_brackets(markdown_text)
         markdown_text = normalize_inline_math_parens(markdown_text)
         markdown_text = filter_horizontal_rules(markdown_text, keep_rules)
-        markdown_text = strip_links(markdown_text)
         markdown_text = normalize_ai_headings(markdown_text)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".md", mode="w", encoding="utf-8") as tmp:
             tmp.write(markdown_text)
@@ -2946,7 +2973,7 @@ class MainWindow(QtWidgets.QMainWindow):
             cmd = [
                 self.pandoc,
                 "-f",
-                "markdown+tex_math_dollars+tex_math_single_backslash+tex_math_double_backslash+raw_tex-yaml_metadata_block-autolink_bare_uris",
+                "markdown+tex_math_dollars+tex_math_single_backslash+tex_math_double_backslash+raw_tex-yaml_metadata_block+autolink_bare_uris",
                 "-t",
                 "docx",
                 "-o",
@@ -2969,11 +2996,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         warnings = []
         try:
-            rebuild_tables_in_docx(output_path, table_data)
-        except Exception:
-            warnings.append("表格处理失败，已记录日志。")
-            self._log_error_file("表格处理失败")
-        try:
             east, latin = font_pair
             patch_numbering_fonts(output_path, east, latin)
             patch_styles_fonts(output_path, east, latin)
@@ -2982,7 +3004,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if not enable_outline:
                 demote_heading_paragraphs(output_path, bold_levels=bold_levels)
             remove_literal_math_markers(output_path)
-            enforce_blockquote_style(output_path)
+            apply_table_grid_style(output_path)
             update_page_numbers(output_path, page_enable, page_start, page_start_page)
         except Exception:
             self._log_error_file("编号字体修复失败")

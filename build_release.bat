@@ -1,13 +1,14 @@
 @echo off
 setlocal
-set PROJECT=%~dp0
-cd /d %PROJECT%
+set "PROJECT=%~dp0"
+cd /d "%PROJECT%"
 
-python -m PyInstaller --noconsole --onefile --clean --name "Markdown转Word" --icon "assets\app.ico" --add-data "templates;templates" --add-data "bin;bin" --add-data "assets;assets" "app_qt.py"
+set "APP_NAME=TuanziConverter"
+python -m PyInstaller --noconsole --onefile --clean --name "%APP_NAME%" --icon "assets\app.ico" --add-data "templates;templates" --add-data "bin;bin" --add-data "assets;assets" "app_qt.py"
 
 if exist build rmdir /s /q build
 if exist __pycache__ rmdir /s /q __pycache__
-if exist Markdown转Word.spec del /q Markdown转Word.spec
+if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
 
 echo Done.
 pause
