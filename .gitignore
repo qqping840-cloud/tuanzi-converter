@@ -1,0 +1,26 @@
+﻿__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/
+
+build/
+dist/
+*.spec
+
+logs/
+*.log
+export_history.json
+settings.json
+
+# do not commit release artifacts
+releases/
+dist/
+build/
+
+# do not commit large binaries
+bin/pandoc.exe
+
+# prevent nested repo accidents
+tuanzi-converter/.git
